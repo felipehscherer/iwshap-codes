@@ -145,45 +145,52 @@ def evaluate_features(X_train, X_test, y_train, y_test, feature_importance_df, l
     initial_features_count (int): Número de features a serem selecionadas na primeira iteração.
 
     Returns:
-    tuple: Melhor conjunto de características, melhor F1 Score, melhor Recall, melhor Precision e melhor rodada.
+    tuple: Melhor conjunto de características, melhor F1 Score, melhor Recall, melhor Precision, melhor Accuracy e melhor rodada.
     """
     print('Iniciando o processo IWSHAP..')
-    best_features = []
-    best_f1_score = 0
-    best_recall = 0
-    best_precision = 0
-    best_round = 0
-    best_accuracy = 0
+    total_features = len(feature_importance_df)
+    best_features = feature_importance_df["feature"].iloc[:initial_features_count].tolist()
 
-    for i in range(len(feature_importance_df)):
-        if i == 0:
-            # Seleciona initial_features_count features na primeira iteração
-            next_features = feature_importance_df["feature"].iloc[:initial_features_count].tolist()
-            current_features = best_features + next_features
-            # Pula as próximas features já adicionadas
-            skip = initial_features_count - 1
-        else:
-            # Seleciona uma feature por iteração após a primeira
-            next_feature = feature_importance_df["feature"].iloc[i + skip]
-            current_features = best_features + [next_feature]
+    # Avaliar o modelo com as features iniciais
+    X_train_selected = X_train[best_features]
+    X_test_selected = X_test[best_features]
+
+    model_selected = XGBClassifier(eval_metric="logloss")
+    model_selected.fit(X_train_selected, y_train)
+    y_pred_selected = model_selected.predict(X_test_selected)
+
+    best_f1_score = f1_score(y_test, y_pred_selected)
+    best_recall = recall_score(y_test, y_pred_selected)
+    best_precision = precision_score(y_test, y_pred_selected)
+    best_accuracy = accuracy_score(y_test, y_pred_selected)
+    best_round = 0  # Rodada inicial
+
+    # Loop começando após as features iniciais
+    for i in range(initial_features_count, total_features):
+        next_feature = feature_importance_df["feature"].iloc[i]
+        current_features = best_features + [next_feature]
 
         X_train_selected = X_train[current_features]
         X_test_selected = X_test[current_features]
 
+        before = time.time()
+
         model_selected = XGBClassifier(eval_metric="logloss")
         model_selected.fit(X_train_selected, y_train)
         y_pred_selected = model_selected.predict(X_test_selected)
+
+        after = time.time()
 
         f1 = f1_score(y_test, y_pred_selected)
         recall = recall_score(y_test, y_pred_selected)
         precision = precision_score(y_test, y_pred_selected)
         accuracy = accuracy_score(y_test, y_pred_selected)
 
-        if f1 > best_f1_score or f1 == 0.0:
+        if f1 > best_f1_score:
             best_f1_score = f1
             best_precision = precision
             best_recall = recall
-            best_round = i
+            best_round = i - initial_features_count + 1  # Ajuste da rodada
             best_features = current_features.copy()
             best_accuracy = accuracy
 
@@ -192,6 +199,7 @@ def evaluate_features(X_train, X_test, y_train, y_test, feature_importance_df, l
     )
 
     return best_features, best_f1_score, best_recall, best_precision, best_accuracy, best_round
+
 
 
 def save_best_features_dataset(df, best_features):
@@ -230,10 +238,10 @@ def main(safe_path, attack_path, log_path, newdata_reduced):
         feature_importance_df = calculate_feature_importance(model, X_train)
         
         # Primeira execução do processo normal
+        log.write(f"\nResultados com seleção de uma feature por vez:\n")
         best_features_1, best_f1_score_1, best_recall_1, best_precision_1, best_accuracy_1, best_round_1 = evaluate_features(
             X_train, X_test, y_train, y_test, feature_importance_df, log, initial_features_count=1
         )
-        log.write(f"Resultados com seleção de uma feature por vez:\n")
         log.write(f"Melhores features finais:\n {best_features_1}\n")
         log.write(f"Melhor F1 Score: {best_f1_score_1}\n")
         log.write(f"Melhor Recall: {best_recall_1}\n")
@@ -242,10 +250,10 @@ def main(safe_path, attack_path, log_path, newdata_reduced):
         log.write(f"Melhor rodada: {best_round_1}\n")
 
         # Segunda execução com duas features na primeira iteração
+        log.write(f"\nResultados com seleção de duas features na primeira iteração:\n")
         best_features_2, best_f1_score_2, best_recall_2, best_precision_2, best_accuracy_2, best_round_2 = evaluate_features(
             X_train, X_test, y_train, y_test, feature_importance_df, log, initial_features_count=2
         )
-        log.write(f"\nResultados com seleção de duas features na primeira iteração:\n")
         log.write(f"Melhores features finais:\n {best_features_2}\n")
         log.write(f"Melhor F1 Score: {best_f1_score_2}\n")
         log.write(f"Melhor Recall: {best_recall_2}\n")
